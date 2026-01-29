@@ -1,0 +1,12 @@
+nohup: ignoring input
+========================================================================
+   CM-DLSSM ARTIFACT EVALUATION: REPRODUCING RESULTS
+========================================================================
+
+[0;34m[INFO] >>> STEP 0: Data Generation (Prerequisite)[0m
+    Target: Synthetic BLV Dataset for Causal Inference
+    Output: data/processed/causal/*.csv
+  File "data/generators/blv_synth.py", line 138
+    df = pd.DataFrame(U, columns=[f"u_ctx_{i}" for i in range(self.u_dim)])
+                                             ^
+SyntaxError: invalid syntax
