@@ -1,0 +1,43 @@
+# ==============================================================================
+# CM-DLSSM Artifact Dependencies
+# ==============================================================================
+# Installation: pip install -r requirements.txt
+# Environment:  Python 3.9+, CUDA 12.1+ (Recommended for Mamba)
+# ==============================================================================
+
+# --- Core Deep Learning & Tensor Ops ---
+torch>=2.4.0            # Required for optimized SDP attention & dynamic graphs
+numpy>=1.26.0           # Matrix operations for Causal/Verifier modules
+einops>=0.8.0           # Tensor manipulation (rearrange/repeat) in Mamba blocks
+
+# --- State Space Models (Hardware Aware) ---
+# Note: These require nvcc (CUDA toolkit) to build. 
+# If running on CPU-only, remove these lines; the code will fallback to PyTorch ref.
+mamba-ssm>=2.2.2        # The selective scan CUDA kernels (Section 2.1)
+causal-conv1d>=1.4.0    # Optimized 1D convolution for SSMs
+
+# --- Natural Language Processing & Transformers ---
+transformers>=4.44.0    # For Baseline models (CodeBERT, StarCoder2)
+tokenizers>=0.19.0      # Fast BPE tokenization for code
+
+# --- Experiment Configuration & Logging ---
+hydra-core>=1.3.2       # Hierarchical config management (.yaml)
+omegaconf>=2.3.0        # Config merging logic
+tqdm>=4.66.0            # Progress bars for long-running benchmarks
+
+# --- Data Processing & Statistics ---
+pandas>=2.2.0           # Dataframes for Result Tables (Table 2/3)
+scipy>=1.13.0           # Advanced stats functions (if needed)
+joblib>=1.4.0           # Parallel processing for Bootstrap CI
+
+# --- Machine Learning & Causal Inference ---
+scikit-learn>=1.5.0     # Isotonic Regression (Calibration), LogisticRegression (DR)
+
+# --- Visualization ---
+matplotlib>=3.9.0       # Generating Plots (Figure 6, Figure 7)
+seaborn>=0.13.0         # Statistical data visualization
+
+# --- Optional / Dev Tools ---
+pytest>=8.0.0           # Running unit tests in src/
+black>=24.0.0           # Code formatting
+flake8>=7.0.0           # Linting

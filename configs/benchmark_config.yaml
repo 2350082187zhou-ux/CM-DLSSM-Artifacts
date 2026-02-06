@@ -1,0 +1,55 @@
+
+# =============================================================================
+# CM-DLSSM: Main Benchmark Configuration
+# Used by: experiments/01_benchmark_main.py
+# =============================================================================
+
+defaults:
+  - _self_
+
+# Dataset Configuration
+dataset:
+  name: bigvul
+  test_path: data/processed/bigvul_test.jsonl
+  batch_size: 32
+  num_workers: 4
+
+# Model Configuration
+model:
+  backbone: mamba
+  d_model: 1024
+  d_state: 128
+  num_predicates: 1
+  checkpoint_path: checkpoints/best_model.pt
+
+# Logic Engine
+logic:
+  max_iterations: 5
+  audit_mode: false
+
+# Calibration
+calibration:
+  stage1: true
+  stage2: true
+
+# Evaluation Settings
+evaluation:
+  metrics:
+    - f1_score
+    - precision
+    - recall
+    - fpr
+    - pr_auc
+    - recall_at_1fpr
+  per_cwe_analysis: true
+  output_dir: artifacts/results
+
+# Runtime Settings
+debug: true  # Set to false for real data
+device: cpu  # Change to 'cuda' if GPU available
+seed: 42
+
+# Logging
+logging:
+  level: INFO
+  save_predictions: true

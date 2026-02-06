@@ -1,0 +1,121 @@
+# ==============================================================================
+# CM-DLSSM Artifact Configuration: Baseline II (SAST + Neural Reranking)
+# Path: configs/baselines/sast_rerank.yaml
+# ==============================================================================
+# Description:
+# This configuration implements a "Filter-and-Refine" pipeline, representing
+# the current industrial standard for reducing false positives.
+#
+# Workflow:
+# 1. SAST Engine: Scans codebase using static rules (data-flow/control-flow)
+#    to generate high-recall candidate alerts (Source -> Sink paths).
+# 2. Slice Extractor: Extracts the specific code statements involved in the
+#    potential vulnerability path (Program Slicing).
+# 3. Neural Reranker: A CodeBERT-based classifier consumes the slice to
+#    predict "True Positive" or "False Positive".
+#
+# Goal: To demonstrate the limitation of "Pipeline" approaches:
+# If the SAST engine fails to extract a complete dependency chain (e.g., due
+# to dynamic dispatch or alias ambiguity), the Neural Reranker lacks the
+# global context to make a correct decision.
+# ==============================================================================
+
+pipeline:
+  name: "sast_guided_neural_reranking"
+  type: "hybrid_baseline"
+
+  # --------------------------------------------------------------------------
+  # 1. Static Analysis Engine (The "Generator")
+  # --------------------------------------------------------------------------
+  sast_engine:
+    # Simulating a CodeQL-like data flow tracker
+    strategy: "taint_tracking"
+    
+    # Rulesets to enable (aligned with the 3 main threat categories)
+    rules:
+      - "CWE-78"  # OS Command Injection
+      - "CWE-89"  # SQL Injection
+      - "CWE-119" # Buffer Overflow
+    
+    # Configuration for Program Slicing
+    slicing:
+      # "backward": Trace back from Sink to Source
+      # "forward": Trace forward from Source
+      direction: "backward"
+      
+      # Max depth of the call graph to traverse statically
+      # Limitation: Static tools struggle with recursion > 10
+      max_call_depth: 10 
+      
+      # If the slice is broken (e.g., missing intermediate step), 
+      # should we keep the partial slice?
+      keep_broken_flows: True # High recall setting
+
+  # --------------------------------------------------------------------------
+  # 2. Neural Reranker (The "Discriminator")
+  # --------------------------------------------------------------------------
+  reranker:
+    model_arch: "microsoft/codebert-base"
+    
+    input_representation:
+      # "token_stream": Just the raw text of the slice
+      # "graph_sequence": Topologically sorted nodes of the PDG (Program Dependence Graph)
+      type: "token_stream"
+      
+      # Note: Since we only feed the *slice*, the input is much shorter 
+      # than 128k. Standard 512 is usually enough for a slice.
+      max_seq_len: 512
+      
+      # How to join non-contiguous lines in the slice?
+      # <SEP> tokens help the model understand jumps.
+      use_separator_token: True
+
+    # Classification Head
+    num_labels: 2 # [0: False Positive, 1: True Vulnerability]
+
+  # --------------------------------------------------------------------------
+  # 3. Decision Logic
+  # --------------------------------------------------------------------------
+  decision:
+    # "threshold": Simple cutoff
+    # "top_k": Return top K most likely vulnerabilities per project
+    mode: "threshold"
+    threshold: 0.5
+    
+    # Fallback policy: If SAST finds a path but Neural says "Safe" (0.1),
+    # do we trust Neural? 
+    # "trust_neural": Yes (Aggressive filtering) -> Low FPR, Higher Miss Rate
+    # "union": No (Conservative) -> High FPR
+    policy: "trust_neural"
+
+  # --------------------------------------------------------------------------
+  # 4. Training Configuration (for the Reranker)
+  # --------------------------------------------------------------------------
+  training:
+    # We train the Reranker on labeled SAST results (e.g., from BigVul)
+    dataset_source: "processed/sast_candidates.jsonl"
+    batch_size: 16
+    learning_rate: 5e-5
+    epochs: 5
+    optimizer: "adamw"
+    
+    # Class weights to handle imbalance (since SAST produces mostly FPs)
+    use_class_weights: True 
+
+  # --------------------------------------------------------------------------
+  # 5. Evaluation Metrics
+  # --------------------------------------------------------------------------
+  metrics:
+    - "reduction_ratio" # How much noise did we filter? (Original SAST count / Final count)
+    - "precision"       # Did we keep the real bugs?
+    - "recall"          # Did we accidentally filter out real bugs? (Critical for security)
+    - "end_to_end_f1"   # The combined performance
+
+# ==============================================================================
+# Critical Flaw being tested:
+# "The Input Bottleneck". The Neural Reranker is strictly limited by what 
+# the SAST Engine can find. If the SAST engine cannot resolve a C++ virtual 
+# function call or an indirect pointer (common in optimized binaries), 
+# the slice will be empty or wrong, and the Reranker will fail.
+# CM-DLSSM reads raw bytes/tokens and doesn't rely on pre-computed slices.
+# ==============================================================================
