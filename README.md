@@ -193,4 +193,4 @@ If you use this project in your research, please cite the following paper:
 
 - **Project Maintainer**: Zedong Zhou
 - **Email**: 2350082187zhou@gmail.com
-- **GitHub**: [2350082187zhou-ux
+- **GitHub**: 2350082187zhou-ux
