@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Outputs / cache
+outputs/
+artifacts/
+
+# OS
+.DS_Store
+
+# Data (if large or private)
+data/
