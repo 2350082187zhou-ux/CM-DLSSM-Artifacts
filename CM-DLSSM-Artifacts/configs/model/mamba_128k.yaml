@@ -1,0 +1,111 @@
+# ==============================================================================
+# CM-DLSSM Artifact Configuration: Selective SSM Backbone (128k Context)
+# Path: configs/model/mamba_128k.yaml
+# ==============================================================================
+# Description:
+# This config defines the hyper-parameters for the Neural Sensing Layer.
+# It utilizes the Mamba-2 architecture adapted for:
+#   1. Extremely long sequences (128,000 tokens) -> Linear O(L) scan.
+#   2. Mixed-modality input (Source + Binary vocabularies).
+#   3. Security-specific gating (SRVS).
+#
+# Hardware Target: NVIDIA H100 (80GB) or A100 (80GB)
+# ==============================================================================
+
+name: "cm_dlssm_128k_backbone"
+
+# ----------------------------------------------------------------------------
+# 1. Global Dimensions
+# ----------------------------------------------------------------------------
+architecture:
+  dim_model: 1024           # Embedding dimension (d_model)
+  n_layers: 24              # Depth of the backbone
+  vocab_size: 65536         # Combined vocabulary (Source + Binary OpCodes)
+  max_seq_len: 131072       # 128k Context Window (The key differentiator)
+  dropout: 0.1
+  
+  # Norm layer type: "RMSNorm" is preferred for SSM stability
+  norm_type: "rms_norm"
+  norm_epsilon: 1e-5
+
+# ----------------------------------------------------------------------------
+# 2. Selective SSM (Mamba-2) Specifics
+# ----------------------------------------------------------------------------
+ssm:
+  # State dimension (N) - The capacity of the hidden state h_t
+  # Higher N = Better memory of long-distance dependencies (e.g., Taint flow)
+  d_state: 128              
+  
+  # Expansion factor (E) - Block expansion ratio (Internal dim = E * d_model)
+  expand_factor: 2          
+  
+  # Local convolution width to capture immediate token neighbors
+  d_conv: 4                 
+  
+  # Rank of delta projection (dt_rank = ceil(d_model / 16))
+  dt_rank: "auto"           
+
+  # Initialization for time-step (Delta) to ensure stability over 128k steps
+  dt_min: 0.001
+  dt_max: 0.1
+  dt_init: "random"
+  dt_scale: 1.0
+  
+  # Initialization of Matrix A (The recurrence weight)
+  # "real_diagonal" ensures stable dynamics (Spectral Radius < 1)
+  A_init_method: "real_diagonal" 
+
+# ----------------------------------------------------------------------------
+# 3. SRVS Gating (Static Risk Vulnerability Sinks) - Section 4.1
+# ----------------------------------------------------------------------------
+srvs_gating:
+  enabled: True
+  
+  # Dimension of the SRVS embedding injected into the state
+  gate_dim: 64              
+  
+  # Number of recognized sink types (e.g., MEMCPY, SQL_EXEC, SYSTEM)
+  num_sink_types: 128       
+  
+  # Injection strategy: 
+  # "add": h_t = h_t + gate
+  # "modulate": h_t = h_t * sigmoid(gate) -> Used in paper (Equation 7)
+  injection_mode: "modulate" 
+
+# ----------------------------------------------------------------------------
+# 4. Hardware-Aware Optimization (The "Speed" Secret)
+# ----------------------------------------------------------------------------
+optimization:
+  # Use custom CUDA kernel for the associative scan (Section 2.1)
+  # This avoids materializing L x L matrices.
+  use_fast_path: True       
+  
+  # Chunk size for the associative scan. 
+  # 256 is a sweet spot for A100/H100 SRAM utilization.
+  chunk_size: 256           
+  
+  # Precision settings for the recurrent state
+  # float32 is mandatory for h_t to avoid numerical divergence in long sequences
+  ssm_state_dtype: "float32" 
+  
+  # Precision for the rest of the network (Linear layers)
+  computation_dtype: "bfloat16" 
+
+  # Gradient Checkpointing (Activation Recomputation)
+  # "layer_wise": Checkpoint every layer to fit 128k tokens in VRAM.
+  gradient_checkpointing: True 
+
+# ----------------------------------------------------------------------------
+# 5. Training Stability
+# ----------------------------------------------------------------------------
+initialization:
+  # Special init for long-context models to prevent vanishing/exploding gradients
+  initializer_range: 0.02
+  rescale_layers: True      # Rescale weights by 1/sqrt(2 * n_layers)
+
+# ==============================================================================
+# Evidence of Soundness:
+# 1. d_state=128 ensures enough capacity to track taint over 100k+ tokens.
+# 2. ssm_state_dtype="float32" prevents rounding errors from accumulating 
+#    into "hallucinations" over long distances.
+# ==============================================================================

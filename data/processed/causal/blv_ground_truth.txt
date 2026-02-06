@@ -1,0 +1,9 @@
+=== CM-DLSSM Causal Validation Report ===
+Scenario: Confounded Logic Flaw (gamma=3.0)
+
+[Ground Truth] True ATE (Risk Effect): -3.2600
+[Naive Obs.]   Naive Diff (Correlation): -2.8438
+[Bias]         Confounding Error:        0.4162
+
+NOTE: The DR Estimator in 'src/causal/dr_estimator.py' must
+      recover the 'True ATE' closer than the 'Naive Diff'.

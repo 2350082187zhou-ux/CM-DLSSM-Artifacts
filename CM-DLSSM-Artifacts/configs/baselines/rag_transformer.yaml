@@ -1,0 +1,105 @@
+# ==============================================================================
+# CM-DLSSM Artifact Configuration: Strong Baseline (RAG-Transformer)
+# Path: configs/baselines/rag_transformer.yaml
+# ==============================================================================
+# Description:
+# This config defines a "Chunk-Encode-Retrieve-Fuse" architecture.
+# It is designed to simulate how traditional Transformers handle long contexts 
+# (128k tokens) by breaking them into manageable windows and using dense 
+# retrieval to find relevant segments.
+#
+# Goal: To prove that "Global State" (SSM) > "Retrieved Fragments" (RAG)
+# regarding chained vulnerabilities.
+# ==============================================================================
+
+model:
+  name: "rag_transformer_strong_baseline"
+  type: "baseline"
+  
+  # --------------------------------------------------------------------------
+  # 1. Backbone Encoder (The "Short Context" Expert)
+  # --------------------------------------------------------------------------
+  # Using GraphCodeBERT to ensure the baseline has strong semantic understanding
+  # of data flow, making the comparison fair.
+  backbone:
+    identifier: "microsoft/graphcodebert-base"
+    hidden_dim: 768
+    vocab_size: 50265
+    dropout: 0.1
+
+  # --------------------------------------------------------------------------
+  # 2. Chunking Strategy (The "Fragmentation" Logic)
+  # --------------------------------------------------------------------------
+  chunking:
+    # Standard Transformer limit. 
+    # Logic: Security flaws often require local context > 512 tokens.
+    window_size: 512  
+    
+    # Overlap to mitigate edge-effects (e.g., split right in a variable name)
+    stride: 128       
+    
+    # The global input limit we are trying to solve (128k)
+    global_context_limit: 131072 
+
+  # --------------------------------------------------------------------------
+  # 3. Retrieval Mechanism (The "Cheat" to handle length)
+  # --------------------------------------------------------------------------
+  retrieval:
+    strategy: "dense"  # "dense" (embedding dot-product) > "sparse" (BM25)
+    
+    # How many chunks to retrieve?
+    # 32 chunks * 512 tokens = 16k tokens effective context (High VRAM usage)
+    # This is a very generous baseline setting.
+    top_k: 32 
+    
+    # Query formation: How do we search?
+    # "sink_focused": Uses the vulnerability sink surroundings as the query
+    # "global_avg": Uses the average of all chunks (weaker)
+    query_mode: "sink_focused" 
+
+  # --------------------------------------------------------------------------
+  # 4. Aggregation / Fusion (Combining Chunks)
+  # --------------------------------------------------------------------------
+  fusion:
+    # "attention_pooling": Learn weights for each retrieved chunk (Best perf)
+    # "max_pooling": Simple max over features
+    method: "attention_pooling"
+    
+    # Output classification head
+    num_classes: 2 # Vulnerable / Safe
+
+  # --------------------------------------------------------------------------
+  # 5. Optimization & Hardware
+  # --------------------------------------------------------------------------
+  training:
+    batch_size: 4       # Low batch size due to RAG memory overhead
+    accumulate_grad: 8  # To simulate effective batch size 32
+    learning_rate: 2e-5
+    max_epochs: 10
+    warmup_steps: 500
+    optimizer: "adamw"
+    weight_decay: 0.01
+    
+    # Mixed precision is mandatory for RAG on large context
+    precision: "bf16-mixed" 
+
+  # --------------------------------------------------------------------------
+  # 6. Reproducibility & Logging
+  # --------------------------------------------------------------------------
+  seed: 42
+  debug_mode: False # Set True to use dummy data
+  
+  # Metrics to report for this baseline
+  metrics:
+    - "f1"
+    - "precision"
+    - "recall"
+    - "throughput_tps" # To compare vs SSM O(L) efficiency
+    - "peak_vram"
+
+# ==============================================================================
+# Hypothesis being tested:
+# Even with Top-K=32 (16k context), RAG will fail to detect "Chained 0-days"
+# where the dependency chain involves >3 intermediate hops that are NOT
+# semantically similar to the Sink (and thus missed by the Retriever).
+# ==============================================================================

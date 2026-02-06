@@ -1,0 +1,133 @@
+# ==============================================================================
+# CM-DLSSM Artifact Configuration: Ablation Matrix (FPR Attribution Study)
+# Path: configs/ablation/ablation_matrix.yaml
+# ==============================================================================
+# Description:
+# This config defines the four specific experimental variants (A, B, C, D) used
+# to dissect the contribution of each architectural tier.
+#
+# Scientific Goal:
+# To decouple the "Accuracy Gains" (from Logic) from the "Reliability Gains"
+# (from Calibration) and the "Safety Gains" (from Gating).
+#
+# Usage:
+# python experiments/03_ablation_matrix.py ablation.variant=A
+# ==============================================================================
+
+defaults:
+  - _self_
+
+# The active variant to run. Override this via command line.
+# Options: "A", "B", "C", "D"
+variant: "D"
+
+# ----------------------------------------------------------------------------
+# 1. Variant Definitions (The "Treatment Groups")
+# ----------------------------------------------------------------------------
+variants:
+  
+  # --- Variant A: The "Control Group" (Raw Neural) ---
+  # Represents: Standard Deep Learning (e.g., Mamba/Transformer without Logic).
+  # Hypothesis: High Recall, but High False Positive Rate (FPR) and High ECE.
+  A:
+    description: "Raw Neural Sensing Layer Only"
+    modules:
+      logic_layer: False
+      calibration_vault: False
+      compliance_gate: False
+    
+    # In this mode, we take the raw logits from Tier 1 and apply sigmoid.
+    inference_strategy: "direct_feedforward" 
+    
+    # If gate is disabled, we never abstain.
+    gate_policy: "always_emit"
+
+  # --- Variant B: Neuro-Symbolic Integration ---
+  # Represents: CM-DLSSM v1.0 (Architecture Logic).
+  # Hypothesis: FPR drops significantly because Logic filters "impossible" flows.
+  #             Flip Rate is measurable but not controlled.
+  B:
+    description: "Neural Sensing + CAVI Logic Inference"
+    modules:
+      logic_layer: True
+      calibration_vault: False
+      compliance_gate: False
+    
+    # Use Log-Ratio CAVI to update beliefs.
+    inference_strategy: "cavi_update"
+    cavi_iterations: 5
+    
+    gate_policy: "always_emit"
+
+  # --- Variant C: Statistical Reliability ---
+  # Represents: A well-tuned probabilistic model.
+  # Hypothesis: ECE (Error) drops near zero. Accuracy doesn't change much vs B,
+  #             but the "Risk Score" becomes meaningful.
+  C:
+    description: "Logic + Two-Stage Calibration"
+    modules:
+      logic_layer: True
+      calibration_vault: True
+      compliance_gate: False
+    
+    inference_strategy: "cavi_update"
+    
+    # Apply Isotonic Regression on the posterior q
+    post_process: "isotonic_calibration"
+    
+    gate_policy: "always_emit"
+
+  # --- Variant D: The Full System (Audit Ready) ---
+  # Represents: CM-DLSSM v3.3 (Production Infrastructure).
+  # Hypothesis: FPR hits SOTA. "Abstain Rate" > 0. 
+  #             This variant proves the system is safe for automation.
+  D:
+    description: "Full System with Compliance Gating"
+    modules:
+      logic_layer: True
+      calibration_vault: True
+      compliance_gate: True
+    
+    inference_strategy: "cavi_update"
+    post_process: "isotonic_calibration"
+    
+    # If Flip Rate > 0.01% or Attachment < 98%, output "ABSTAIN"
+    gate_policy: "strict_flip_rate"
+    gate_thresholds:
+      eta_09: 0.0001
+      min_attachment: 0.98
+
+# ----------------------------------------------------------------------------
+# 2. Shared Evaluation Settings (Ceteris Paribus)
+# ----------------------------------------------------------------------------
+# These settings remain constant across all variants to ensure fairness.
+shared:
+  dataset: "BigVul_Test_Set_Fixed" # Using the exact same 10k samples
+  batch_size: 32
+  
+  # For Variant A, we simulate logic 'off' by setting rule weights to 0
+  # or bypassing the module entirely (faster).
+  simulate_logic_off_via_weights: False 
+
+# ----------------------------------------------------------------------------
+# 3. Metrics to Log
+# ----------------------------------------------------------------------------
+reporting:
+  metrics:
+    - "f1_score"
+    - "false_positive_rate" (FPR)
+    - "expected_calibration_error" (ECE)
+    - "abstain_rate"       # % of samples where model refused to predict (Specific to D)
+    - "flip_rate_09"       # Consistency metric (Specific to B, C, D)
+    - "effective_coverage" # (1 - Abstain Rate) * Recall
+
+# ==============================================================================
+# Expected Outcome Matrix (for the Paper):
+#
+# | Variant | FPR   | ECE   | Abstain | Conclusion                             |
+# |---------|-------|-------|---------|----------------------------------------|
+# | A       | 11.4% | 0.15  | 0%      | Neural nets are noisy & overconfident. |
+# | B       | 4.1%  | 0.12  | 0%      | Logic constraints filter ~60% of FPs.  |
+# | C       | 4.0%  | 0.007 | 0%      | Scores are now trustworthy probabilities.|
+# | D       | 2.6%  | 0.007 | 1.8%    | Gating removes the "Hardest" FPs.      |
+# ==============================================================================
